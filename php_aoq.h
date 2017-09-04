@@ -74,6 +74,8 @@
 #undef PHP_STREAM_BUFFER_FULL
 #define PHP_STREAM_BUFFER_FULL	2	/* fully buffered */
 
+typedef long zend_long;
+
 /* {{{ struct int */
 typedef struct {
     php_stream     *stream;
@@ -108,7 +110,8 @@ PHP_AOQ_API zend_class_entry * aoq_get_exception_base(TSRMLS_D);
 void parse_head_len(char *buf, int *head_len);
 void parse_argvlen(char *buf, int head_len, int *reslen);
 char * parse_argv(char *buf, int head_len, int *reslen);
-PHP_AOQ_API AoqSock * aoq_sock_create(char *host, int host_len, unsigned short port, double timeout, double read_timeout, int persistent, char *persistent_id, int retry_times TSRMLS_DC);
+PHP_AOQ_API AoqSock * aoq_sock_create(char *host, int host_len, unsigned short port, double timeout, double read_timeout, int persistent, char *persistent_id, int retry_times);
+PHP_AOQ_API int aoq_connect(INTERNAL_FUNCTION_PARAMETERS, int persistent);
 PHP_AOQ_API int aoq_sock_connect(AoqSock *aoq_sock TSRMLS_DC);
 PHP_AOQ_API int aoq_sock_server_open(AoqSock *aoq_sock TSRMLS_DC);
 PHP_AOQ_API int aoq_sock_write_cmd(AoqSock *aoq_sock, char *cmd, size_t sz TSRMLS_DC);
@@ -157,7 +160,6 @@ PHP_MINIT_FUNCTION(aoq);
 PHP_MSHUTDOWN_FUNCTION(aoq);
 PHP_MINFO_FUNCTION(aoq);
 
-PHP_AOQ_API int aoq_connect(INTERNAL_FUNCTION_PARAMETERS, int persistent);
 
 #ifndef _MSC_VER
 ZEND_BEGIN_MODULE_GLOBALS(aoq)
@@ -183,7 +185,7 @@ ZEND_END_MODULE_GLOBALS(aoq)
    in php_aoq_globals, call TSRMLS_FETCH(); after declaring other 
    variables used by that function, or better yet, pass in TSRMLS_CC
    after the last function argument and declare your utility function
-   with TSRMLS_DC after the last declared argument.  Always refer to
+   with after the last declared argument.  Always refer to
    the globals in your function as AOQ_G(variable).  You are 
    encouraged to rename these macros something shorter, see
    examples in any other php module directory.

@@ -63,7 +63,7 @@ void free_aoq_object(void *object TSRMLS_DC)
 
     if (aoq->sock){
 		aoq_sock_disconnect(aoq->sock TSRMLS_CC);
-        aoq_free_socket(aoq->sock TSRMLS_CC);
+        aoq_free_socket(aoq->sock);
     }
     efree(aoq);
 }
@@ -402,7 +402,7 @@ PHP_AOQ_API char * parse_argv(char *buf, int head_len, int *reslen)
 /**
  * aoq_sock_create
  */
-PHP_AOQ_API AoqSock * aoq_sock_create(char *host, int host_len, unsigned short port, double timeout, double read_timeout, int persistent, char *persistent_id, int retry_times TSRMLS_DC)
+PHP_AOQ_API AoqSock * aoq_sock_create(char *host, int host_len, unsigned short port, double timeout, double read_timeout, int persistent, char *persistent_id, int retry_times)
 {
     AoqSock *aoq_sock;
 
@@ -479,11 +479,11 @@ PHP_AOQ_API int aoq_sock_connect(AoqSock *aoq_sock TSRMLS_DC)
     }
 
 
-    aoq_sock->stream = php_stream_xport_create(host, host_len, 0, STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, persistent_id, tv_ptr, NULL, &(aoq_sock->sock_err), &(aoq_sock->sock_errno) TSRMLS_DC);
+    aoq_sock->stream = php_stream_xport_create(host, host_len, 0, STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, persistent_id, tv_ptr, NULL, &(aoq_sock->sock_err), &(aoq_sock->sock_errno));
 
     while( !aoq_sock->stream && retry_times < aoq_sock->retry_times)
     {
-        aoq_sock->stream = php_stream_xport_create(host, host_len,0, STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, persistent_id, tv_ptr, NULL, &(aoq_sock->sock_err), &(aoq_sock->sock_errno) TSRMLS_DC);
+        aoq_sock->stream = php_stream_xport_create(host, host_len,0, STREAM_XPORT_CLIENT | STREAM_XPORT_CONNECT, persistent_id, tv_ptr, NULL, &(aoq_sock->sock_err), &(aoq_sock->sock_errno));
         retry_times++;
         sleep(1);
     }
@@ -554,6 +554,7 @@ PHP_AOQ_API char * aoq_sock_read_reply(AoqSock *aoq_sock, int *buf_len TSRMLS_DC
 {
     size_t readlen = 0;
     size_t buflen = 8192;
+    size_t malloc_size = buflen;
     char *buf = (char *)emalloc(buflen*sizeof(char));
     char *b = buf;
     if (!aoq_sock || aoq_sock->status == AOQ_SOCK_STATUS_DISCONNECTED) {
@@ -563,12 +564,14 @@ PHP_AOQ_API char * aoq_sock_read_reply(AoqSock *aoq_sock, int *buf_len TSRMLS_DC
     }
 
     
-    while (php_stream_get_line(aoq_sock->stream, b, buflen, &readlen TSRMLS_CC)) {
+    while (1) {
+        readlen = php_stream_read(aoq_sock->stream, b, buflen);
         *buf_len += readlen;
-        if (*(b+(*buf_len)-1) != '\n' && !php_stream_eof(aoq_sock->stream)) {
-            if (readlen >= buflen) {
+        if (*(b+readlen-1) != '\n' && !php_stream_eof(aoq_sock->stream)) {
+            if ((malloc_size-(*buf_len)) < buflen) {
                 buf = erealloc(buf, *buf_len+buflen);
                 b = buf+(*buf_len);
+                malloc_size += buflen;
             } 
             continue;
         }
@@ -592,9 +595,9 @@ PHP_AOQ_API char * aoq_status(AoqSock *aoq_sock, int *reslen TSRMLS_DC)
     
     memcpy(aoq_cmd, "0501 \n", 6);
     
-    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, 6) > 0)
+    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, 6 TSRMLS_CC) > 0)
     {
-        buf = aoq_sock_read_reply(aoq_sock, &buf_len);
+        buf = aoq_sock_read_reply(aoq_sock, &buf_len TSRMLS_CC);
         parse_head_len(buf, &head_len);
         if(head_len != 11)
         {
@@ -624,9 +627,9 @@ PHP_AOQ_API int aoq_push(AoqSock *aoq_sock, char *qname, int qname_len, char *qv
     *(aoq_cmd+qname_len+qval_len+18) = '\0';
     sprintf(aoq_cmd, "1702%06d%06d %s%s\n", qname_len, qval_len, qname, qval);
 
-    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+qval_len+18) > 0)
+    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+qval_len+18 TSRMLS_CC) > 0)
     {
-        buf = aoq_sock_read_reply(aoq_sock, &buf_len);
+        buf = aoq_sock_read_reply(aoq_sock, &buf_len TSRMLS_CC);
         parse_head_len(buf, &head_len);
         if(head_len != 11)
         {
@@ -666,9 +669,9 @@ PHP_AOQ_API char * aoq_pop(AoqSock *aoq_sock, char *qname, int qname_len, int *r
     
     sprintf(aoq_cmd, "1103%06d %s\n", qname_len, qname);
     
-    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+12) > 0)
+    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+12 TSRMLS_CC) > 0)
     {
-        buf = aoq_sock_read_reply(aoq_sock, &buf_len);
+        buf = aoq_sock_read_reply(aoq_sock, &buf_len TSRMLS_CC);
         parse_head_len(buf, &head_len);
         if(head_len != 11)
         {
@@ -694,9 +697,9 @@ PHP_AOQ_API char * aoq_queues(AoqSock *aoq_sock, int *reslen TSRMLS_DC)
     
     memcpy(aoq_cmd, "0504 \n", 6);
     
-    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, 6) > 0)
+    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, 6 TSRMLS_CC) > 0)
     {
-        buf = aoq_sock_read_reply(aoq_sock, &buf_len);
+        buf = aoq_sock_read_reply(aoq_sock, &buf_len TSRMLS_CC);
         parse_head_len(buf, &head_len);
         if(head_len != 11)
         {
@@ -722,10 +725,10 @@ PHP_AOQ_API char * aoq_queue(AoqSock *aoq_sock, char *qname, int qname_len, int 
     
     sprintf(aoq_cmd, "1105%06d %s\n", qname_len, qname);
     
-    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+12) > 0)
+    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+12 TSRMLS_CC) > 0)
     {
         
-        buf = aoq_sock_read_reply(aoq_sock, &buf_len);
+        buf = aoq_sock_read_reply(aoq_sock, &buf_len TSRMLS_CC);
         parse_head_len(buf, &head_len);
         if(head_len != 11)
         {
@@ -757,9 +760,9 @@ PHP_AOQ_API int aoq_delqueue(AoqSock *aoq_sock, char *qname, int qname_len TSRML
     
     sprintf(aoq_cmd, "1106%06d %s\n", qname_len, qname);
     
-    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+12) > 0)
+    if(aoq_sock_write_aoq_cmd(aoq_sock, aoq_cmd, qname_len+12 TSRMLS_CC) > 0)
     {
-        buf = aoq_sock_read_reply(aoq_sock, &buf_len);
+        buf = aoq_sock_read_reply(aoq_sock, &buf_len TSRMLS_CC);
         parse_head_len(buf, &head_len);
         if(head_len != 11)
         {
@@ -855,7 +858,7 @@ PHP_AOQ_API int aoq_connect(INTERNAL_FUNCTION_PARAMETERS, int persistent)
 {
     zval *object;
     char *host = NULL, *persistent_id = NULL;
-    long port = -1, retry_times = 0;
+    zend_long port = -1, retry_times = 0;
     int host_len, persistent_id_len;
     double timeout = 0.0, read_timeout = 0.0;
     aoq_object *aoq;
@@ -1028,14 +1031,14 @@ PHP_METHOD(Aoq, set_chunk_size)
 {
 	AoqSock *aoq_sock;
 	int	ret;
-	size_t csize;
+	zend_long csize;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &csize) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &csize) == FAILURE) {
 		RETURN_FALSE;
 	}
 
 	if (csize <= 0) {
-		php_error_docref(NULL, E_WARNING, "The chunk size must be a positive integer, %d given ", csize);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "The chunk size must be a positive integer, %d given ", csize);
 		RETURN_FALSE;
 	}
 	
@@ -1048,7 +1051,7 @@ PHP_METHOD(Aoq, set_chunk_size)
 	 * In any case, values larger than INT_MAX for a chunk size make no sense.
 	 */
 	if (csize > INT_MAX) {
-		php_error_docref(NULL, E_WARNING, "The chunk size cannot be larger than %d", INT_MAX);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "The chunk size cannot be larger than %d", INT_MAX);
 		RETURN_FALSE;
 	}
 
@@ -1064,7 +1067,7 @@ PHP_METHOD(Aoq, set_read_buffer)
 	int ret;
 	size_t buff;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &buff) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &buff) == FAILURE) {
 		RETURN_FALSE;
 	}
 	
@@ -1091,7 +1094,7 @@ PHP_METHOD(Aoq, set_write_buffer)
 	int ret;
 	size_t buff;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &buff) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &buff) == FAILURE) {
 		RETURN_FALSE;
 	}
 	
@@ -1122,7 +1125,7 @@ PHP_METHOD(Aoq, status)
     }
     
     
-    char *result = aoq_status(aoq_sock, &reslen);
+    char *result = aoq_status(aoq_sock, &reslen TSRMLS_CC);
     if(result == NULL)
     {
         RETURN_FALSE;
@@ -1150,7 +1153,7 @@ PHP_METHOD(Aoq, push)
            RETURN_FALSE;
     }
     
-    result = aoq_push(aoq_sock, qname, qname_len, qval, qval_len);
+    result = aoq_push(aoq_sock, qname, qname_len, qval, qval_len TSRMLS_CC);
     
     if(result == 1)
     {
@@ -1179,7 +1182,7 @@ PHP_METHOD(Aoq, pop)
         RETURN_FALSE;
     }
     
-    result = aoq_pop(aoq_sock, qname, qname_len, &reslen);
+    result = aoq_pop(aoq_sock, qname, qname_len, &reslen TSRMLS_CC);
 
     if(result == NULL)
     {
@@ -1202,7 +1205,7 @@ PHP_METHOD(Aoq, queues)
     }
 
     int reslen = 0;
-    char *result = aoq_queues(aoq_sock, &reslen);
+    char *result = aoq_queues(aoq_sock, &reslen TSRMLS_CC);
     
     if(result == NULL)
     {
@@ -1232,7 +1235,7 @@ PHP_METHOD(Aoq, queue)
     }
     
     
-    result = aoq_queue(aoq_sock, qname, qname_len, &reslen);
+    result = aoq_queue(aoq_sock, qname, qname_len, &reslen TSRMLS_CC);
     
     if(result == NULL)
     {
@@ -1261,7 +1264,7 @@ PHP_METHOD(Aoq, delqueue)
            RETURN_FALSE;
     }
     
-    result = aoq_delqueue(aoq_sock, qname, qname_len);
+    result = aoq_delqueue(aoq_sock, qname, qname_len TSRMLS_CC);
 
     if(result == 1)
     {
